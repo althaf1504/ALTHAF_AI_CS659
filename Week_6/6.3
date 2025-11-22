@@ -1,0 +1,51 @@
+def run_tsp_hopfield(dist_matrix, max_iter=5000):
+    """
+    Run Hopfield network to get an approximate TSP tour.
+    Returns: tour (list of city indices), final energy
+    """
+    n = dist_matrix.shape[0]
+    N = n * n
+
+    W, theta = build_tsp_hopfield(dist_matrix)
+    V = np.random.choice([0, 1], size=N)
+
+    def energy(V):
+        return -0.5 * V @ (W @ V) + theta @ V
+
+    # Asynchronous updates
+    for _ in range(max_iter):
+        i = np.random.randint(0, N)
+        net_input = np.dot(W[i], V) - theta[i]
+        V[i] = 1 if net_input >= 0 else 0
+
+    # Decode the tour: for each position, pick the city with highest activation
+    V_matrix = V.reshape((n, n))  # shape: [city, position]
+    tour = []
+
+    for p in range(n):
+        city = np.argmax(V_matrix[:, p])
+        tour.append(city)
+
+    return tour, energy(V)
+
+if __name__ == "__main__":
+    # Example: 10 cities with random symmetric distances
+    n_cities = 10
+    dist = np.random.rand(n_cities, n_cities)
+    dist = 0.5 * (dist + dist.T)  # make symmetric
+    np.fill_diagonal(dist, 0.0)   # zero distance to self
+
+    tour, E = run_tsp_hopfield(dist, max_iter=5000)
+
+    print("Approximate TSP tour (sequence of city indices):")
+    print(tour)
+    print("\nFinal energy:", E)
+
+    # Number of neurons and weights:
+    N = n_cities * n_cities
+    total_weights = N * N
+    unique_weights = N * (N - 1) // 2
+
+    print(f"\nNumber of neurons: {N}")
+    print(f"Total weights in W (N x N): {total_weights}")
+    print(f"Unique off-diagonal weights (symmetric W): {unique_weights}")

@@ -1,0 +1,142 @@
+import random
+
+# ================================
+#  10-armed Non-stationary Bandit
+# ================================
+
+class NonStationaryBandit:
+    """
+    10-armed bandit where true mean rewards start equal and then
+    follow independent random walks.
+    """
+
+    def __init__(self, k=10, init_mean=0.0, walk_std=0.01, reward_std=1.0):
+        self.k = k
+        self.walk_std = walk_std
+        self.reward_std = reward_std
+        self.q_true = [init_mean] * k    # all means start equal
+
+    def step(self, action):
+        """
+        action: index 0..9
+        Returns reward sample from N(q_true[action], 1)
+        """
+        # random walk update
+        for i in range(self.k):
+            self.q_true[i] += random.gauss(0, self.walk_std)
+
+        # reward
+        reward = random.gauss(self.q_true[action], self.reward_std)
+        return reward
+
+
+# ========================================
+#  Modified Epsilon-Greedy Agent
+# ========================================
+
+class ModifiedEpsilonGreedyAgent:
+    def __init__(self, k=10, epsilon=0.1, alpha=0.1):
+        self.k = k
+        self.epsilon = epsilon
+        self.alpha = alpha
+        self.Q = [0.0] * k       # Q-action values
+        self.N = [0] * k         # count of selections
+
+    def select_action(self):
+        if random.random() < self.epsilon:
+            return random.randint(0, self.k - 1)  # explore
+        else:
+            max_q = max(self.Q)
+            candidates = [i for i, q in enumerate(self.Q) if q == max_q]
+            return random.choice(candidates)      # exploit
+
+    def update(self, action, reward):
+        self.N[action] += 1
+        self.Q[action] += self.alpha * (reward - self.Q[action])
+
+
+# ================================
+#  Experiment Runner
+# ================================
+
+def run_experiment(k, steps, epsilon, alpha, init_mean, walk_std, reward_std):
+    env = NonStationaryBandit(
+        k=k,
+        init_mean=init_mean,
+        walk_std=walk_std,
+        reward_std=reward_std
+    )
+
+    agent = ModifiedEpsilonGreedyAgent(
+        k=k,
+        epsilon=epsilon,
+        alpha=alpha
+    )
+
+    total_reward = 0
+    optimal_count = 0
+
+    for t in range(1, steps + 1):
+        # Determine current best arm
+        best_value = max(env.q_true)
+        best_actions = [i for i, v in enumerate(env.q_true) if v == best_value]
+
+        # Agent chooses action
+        action = agent.select_action()
+
+        if action in best_actions:
+            optimal_count += 1
+
+        # Environment returns reward
+        reward = env.step(action)
+
+        # Update agent
+        agent.update(action, reward)
+
+        total_reward += reward
+
+        # Display progress every 2000 steps
+        if t % 2000 == 0:
+            print(f"\n--- Step {t} ---")
+            print("Average reward so far:", round(total_reward / t, 3))
+            print("Percent optimal:", round(100 * optimal_count / t, 2), "%")
+            print("Current Q estimates:", [round(q, 3) for q in agent.Q])
+            print("Times chosen:", agent.N)
+
+    print("\n==========================")
+    print("    FINAL RESULTS")
+    print("==========================")
+    print("Total steps:", steps)
+    print("Average reward:", round(total_reward / steps, 3))
+    print("Percent optimal actions:", round(100 * optimal_count / steps, 2), "%")
+    print("Final Q values:", [round(q, 3) for q in agent.Q])
+    print("Final true means:", [round(v, 3) for v in env.q_true])
+    print("Times each action chosen:", agent.N)
+
+
+# ================================
+#        MAIN PROGRAM
+# ================================
+
+if __name__ == "__main__":
+    print("=== Non-Stationary 10-Armed Bandit ===")
+    print("Give each parameter as input when prompted.\n")
+
+    # Ask for each input with the exact variable names
+    epsilon = float(input("Enter epsilon (exploration rate): "))
+    alpha = float(input("Enter alpha (step-size for Q update): "))
+    steps = int(input("Enter number_of_steps (e.g., 10000): "))
+    init_mean = float(input("Enter initial_mean_of_all_arms (e.g., 0): "))
+    walk_std = float(input("Enter walk_std (e.g., 0.01): "))
+    reward_std = float(input("Enter reward_std (e.g., 1): "))
+
+    # Run experiment
+    run_experiment(
+        k=10,
+        steps=steps,
+        epsilon=epsilon,
+        alpha=alpha,
+        init_mean=init_mean,
+        walk_std=walk_std,
+        reward_std=reward_std
+    )

@@ -1,0 +1,413 @@
+
+
+
+get_ipython().system('pip install yfinance pandas numpy matplotlib')
+
+
+
+#Data Acquisition: Download historical financial data (e.g., stock prices or indices) from a reliable source like Yahoo Finance. 
+#The data should cover a sufficiently large time frame (e.g., 10 years or more) to capture long-term trends and market regimes. 
+#You may choose a specific company (e.g., Apple, Tesla) or an index (e.g., S&P 500).
+
+
+
+import yfinance as yf
+import pandas as pd
+
+# Choose your stock symbol and time frame
+symbol = "AAPL"  # you can replace with TSLA, SPY, etc.
+start_date = "2013-01-01"
+end_date = "2023-10-01"
+
+# Download data
+data = yf.download(symbol, start=start_date, end=end_date)
+
+# Show first few rows
+data.head()
+
+
+
+print(data.columns)
+
+
+#Preprocessing: Extract the relevant features for modeling, such as daily adjusted closing prices. 
+#Calculate the daily returns from the adjusted closing prices. 
+#Handle any missing or erroneous data points by cleaning the dataset to ensure quality input.
+
+
+
+# Use adjusted close prices
+data['Close'].plot(title=f'{symbol} Adjusted Close Price')
+
+# Calculate daily returns
+data['Returns'] = data['Close'].pct_change()  # percentage change
+data = data.dropna()  # remove NaN values from pct_change
+
+# Preview
+data[['Close', 'Returns']].head()
+
+
+
+
+
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(12,6))
+plt.plot(data['Returns'])
+plt.title(f'{symbol} Daily Returns')
+plt.show()
+
+
+
+get_ipython().system('pip install hmmlearn')
+
+
+
+
+import numpy as np
+import matplotlib.pyplot as plt
+from hmmlearn.hmm import GaussianHMM
+
+
+
+# Use returns for HMM (reshaped to 2D)
+X = data['Returns'].values.reshape(-1, 1)
+
+
+
+#Fitting the Model: Use the Gaussian Hidden Markov Model to model the financial returns data. 
+#Select an appropriate number of hidden states (e.g., 2 or more) to capture different market conditions (e.g., high and low volatility regimes). 
+#Fit the HMM to the returns data and predict the hidden states that best describe the observed data.
+
+
+
+# Create HMM model
+model = GaussianHMM(n_components=2, covariance_type="full", n_iter=1000, random_state=42)
+
+# Fit the model
+model.fit(X)
+
+# Predict hidden states
+hidden_states = model.predict(X)
+
+# Add hidden states to the dataframe
+data['Hidden_State'] = hidden_states
+
+
+#Parameter Analysis: Analyze the mean and variance of each hidden state to characterize the market regimes. 
+#Interpret these hidden states in the context of financial markets (e.g., identifying bear and bull markets or high/low-risk periods).
+
+
+#Higher mean/variance → often indicates high volatility / risk
+#Lower mean/variance → indicates stable / low-risk periods
+#Lower mean/variance → indicates stable / low-risk period
+for i in range(model.n_components):
+    print(f"Hidden State {i}:")
+    print(f"  Mean = {model.means_[i][0]:.6f}")
+    print(f"  Variance = {model.covars_[i][0][0]:.6f}")
+
+
+
+#This visualization helps you see when the market was in a high or low volatility regime.
+plt.figure(figsize=(15,6))
+
+# Plot stock returns colored by hidden state
+for i in range(model.n_components):
+    state = data[data['Hidden_State'] == i]
+    plt.plot(state.index, state['Returns'], '.', label=f'State {i}')
+
+plt.title(f"{symbol} Returns with Hidden States")
+plt.xlabel("Date")
+plt.ylabel("Daily Returns")
+plt.legend()
+plt.show()
+
+
+
+#optional: This shows the market regimes on the price chart for easy interpretation.
+plt.figure(figsize=(15,6))
+plt.plot(data['Close'], label='Price')  # use 'Close' here
+
+for i in range(model.n_components):
+    mask = data['Hidden_State'] == i
+    plt.scatter(data.index[mask], data['Close'][mask], label=f'State {i}', s=10)
+
+plt.title(f"{symbol} Price Highlighted by Hidden States")
+plt.xlabel("Date")
+plt.ylabel("Price")
+plt.legend()
+plt.show()
+
+
+
+#Inferred Hidden States: Decode the hidden states predicted by the HMM and identify the time periods corresponding to each hidden state.
+#Visualize the inferred hidden states over time and analyze how the market transitions between different regimes.
+
+
+
+
+hidden_states = model.predict(X)
+data['Hidden_State'] = hidden_states
+
+
+#This gives you an idea of how long each regime lasted.
+for i in range(model.n_components):
+    state_periods = data[data['Hidden_State'] == i]
+    print(f"Hidden State {i}:")
+    print(f"  Start Date: {state_periods.index.min()}")
+    print(f"  End Date: {state_periods.index.max()}")
+    print(f"  Number of Days: {len(state_periods)}\n")
+
+
+
+#The transition matrix tells you the probability of moving from one state to another:
+print("Transition Matrix:")
+print(model.transmat_)
+
+
+
+#visualize it as a heatmap:
+import seaborn as sns
+
+plt.figure(figsize=(6,5))
+sns.heatmap(model.transmat_, annot=True, cmap='Blues', fmt=".2f")
+plt.title("HMM Transition Matrix")
+plt.xlabel("To State")
+plt.ylabel("From State")
+plt.show()
+
+#Insights you can infer
+
+#Duration of regimes → see which state lasts longer
+
+#Volatility characterization → from mean/variance of each state
+
+#Market switching behavior → from the transition matrix, e.g.:
+
+#High transmat_[i,i] → state tends to persist
+
+#High transmat_[i,j] → frequent transitions between regimes
+
+
+
+
+#Model Evaluation: Discuss how well the HMM captures the underlying market dynamics. 
+#Evaluate whether the hidden states provide meaningful insights into the stock's volatility patterns. 
+#Analyze how changes in the number of hidden states impact the interpretation of the results.
+
+
+
+"""When evaluating the HMM:
+
+1.Check the mean and variance of each state
+
+Higher variance → likely high-risk/high-volatility regime
+
+Lower variance → stable/low-volatility regime
+2. Transition Matrix Insights
+
+model.transmat_ shows likelihood of switching between states
+
+High diagonal values → states are persistent
+
+Off-diagonal values → frequent regime changes
+
+3. Impact of Number of Hidden States
+
+Too few states → may merge distinct market conditions
+
+Too many states → may overfit and split similar regimes
+
+Start with 2–3 states, experiment, and interpret the results
+
+4. Visual Check
+
+Ensure plotted states align with periods of high/low volatility
+
+Compare hidden states with real market events if possible
+
+"""
+
+
+for i in range(model.n_components):
+    print(f"State {i}: mean = {model.means_[i][0]:.5f}, variance = {model.covars_[i][0][0]:.5f}")
+
+
+
+"""Summary of Evaluation
+
+Strengths of Gaussian HMM: Captures hidden market regimes, identifies high/low volatility periods, provides transition probabilities.
+
+Limitations: Assumes Gaussian distribution of returns, may miss extreme events (fat tails), sensitive to number of hidden states.
+
+Interpretation tip: Use both statistical metrics (mean, variance, transition matrix) and visualizations to conclude meaningful market insights."""
+
+
+
+
+#Bonus Task (Optional):
+#Extend the Gaussian HMM to include more than two hidden states to capture more complex market behavior, 
+#such as extreme volatility periods or stable growth phases.
+
+
+
+X = data['Returns'].values.reshape(-1, 1)
+
+
+
+# Prepare data again (if X not defined)
+X = data['Returns'].values.reshape(-1, 1)
+
+# Check shape to confirm
+print("Shape of X:", X.shape)
+
+
+
+
+for n in [2, 3, 4, 5]:
+    print(f"\n=== HMM with {n} Hidden States ===")
+    model_n = GaussianHMM(n_components=n, covariance_type="full", n_iter=1000, random_state=42)
+    model_n.fit(X)
+    hidden_states_n = model_n.predict(X)
+    
+    for i in range(model_n.n_components):
+        print(f"State {i}: mean = {model_n.means_[i][0]:.6f}, variance = {model_n.covars_[i][0][0]:.6f}")
+    
+    print("Log Likelihood:", model_n.score(X))
+
+
+
+# Choose best model, e.g., 4-state
+model4 = GaussianHMM(n_components=4, covariance_type="full", n_iter=1000, random_state=42)
+model4.fit(X)
+hidden_states4 = model4.predict(X)
+data['Hidden_State'] = hidden_states4
+
+# Plot price with 4 hidden states
+plt.figure(figsize=(15,6))
+plt.plot(data['Close'], label='Price', color='black')
+colors = ['red', 'green', 'blue', 'orange']
+for i in range(model4.n_components):
+    mask = data['Hidden_State'] == i
+    plt.scatter(data.index[mask], data['Close'][mask], label=f'State {i}', s=10, color=colors[i])
+plt.title(f"{symbol} Price Highlighted by 4 Hidden Market Regimes")
+plt.xlabel("Date")
+plt.ylabel("Price")
+plt.legend()
+plt.show()
+
+
+
+import numpy as np
+
+bics = []
+for n in range(2, 6):
+    model_n = GaussianHMM(n_components=n, covariance_type="full", n_iter=1000, random_state=42)
+    model_n.fit(X)
+    logL = model_n.score(X)
+    k = n * (n - 1) + n * 2  # rough param count
+    bic = -2 * logL + k * np.log(len(X))
+    bics.append((n, bic))
+    print(f"States={n}, BIC={bic:.2f}")
+
+# Pick the model with lowest BIC
+#Compare the results of the HMM model on different financial instruments (e.g., comparing stocks of different 
+#companies or indices) to understand how market dynamics vary across assets.
+
+
+
+
+# STEP 1: Import Libraries
+import yfinance as yf
+import pandas as pd
+import numpy as np
+from hmmlearn.hmm import GaussianHMM
+import matplotlib.pyplot as plt
+
+# STEP 2: Define Assets and Date Range
+symbols = ['AAPL', 'MSFT', '^GSPC']  # Apple, Microsoft, S&P 500
+start_date = '2013-01-01'
+end_date = '2023-10-01'
+
+# STEP 3: Download and Prepare Data
+data_dict = {}  # this will store data for each symbol
+
+for symbol in symbols:
+    df = yf.download(symbol, start=start_date, end=end_date)
+    df['Returns'] = df['Close'].pct_change()  # daily returns
+    df = df.dropna()  # remove NaN rows
+    data_dict[symbol] = df  # save in dictionary
+    print(f"{symbol} data loaded with {len(df)} records.")
+
+# STEP 4: Fit HMM for Each Symbol
+results = {}
+
+for symbol, df in data_dict.items():
+    X = df['Returns'].values.reshape(-1, 1)
+    
+    model = GaussianHMM(
+        n_components=2,  # start with 2 states (low vs high volatility)
+        covariance_type="full",
+        n_iter=1000,
+        random_state=42
+    )
+    
+    model.fit(X)
+    hidden_states = model.predict(X)
+    
+    # Save model results
+    results[symbol] = {
+        'model': model,
+        'means': model.means_.flatten(),
+        'variances': [np.diag(cov)[0] for cov in model.covars_],
+        'transmat': model.transmat_
+    }
+    
+    print(f"\n=== {symbol} ===")
+    for i in range(model.n_components):
+        print(f"State {i}: mean = {model.means_[i][0]:.6f}, variance = {model.covars_[i][0][0]:.6f}")
+    print("Transition Matrix:\n", model.transmat_)
+
+# STEP 5: Plot Volatility Comparison
+plt.figure(figsize=(12, 6))
+for symbol in symbols:
+    plt.plot(
+        data_dict[symbol]['Returns'].rolling(30).std(),
+        label=f"{symbol} 30-Day Rolling Volatility"
+    )
+plt.title("Rolling Volatility Comparison Across Instruments")
+plt.xlabel("Date")
+plt.ylabel("Rolling Std (Volatility)")
+plt.legend()
+plt.show()
+
+
+
+# STEP 6: Create Summary Table Comparing Hidden States
+
+summary_data = []
+
+for symbol, result in results.items():
+    for i in range(len(result['means'])):
+        mean = result['means'][i]
+        var = result['variances'][i]
+        persistence = result['transmat'][i, i]  # diagonal value = staying in same state
+        summary_data.append({
+            'Symbol': symbol,
+            'State': i,
+            'Mean Return': round(mean, 6),
+            'Variance': round(var, 6),
+            'Persistence (Stay Prob)': round(persistence, 3)
+        })
+
+summary_df = pd.DataFrame(summary_data)
+print("\n=== HMM Hidden State Comparison Across Assets ===\n")
+print(summary_df)
+
+# Optional: visualize comparison
+import seaborn as sns
+plt.figure(figsize=(10, 5))
+sns.barplot(x='Symbol', y='Variance', hue='State', data=summary_df)
+plt.title('Volatility (Variance) by Hidden State and Asset')
+plt.ylabel('Variance')
+plt.show()

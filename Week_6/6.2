@@ -1,0 +1,71 @@
+import numpy as np
+
+def idx(i, j, n):
+    return i * n + j
+
+def build_eight_rook_network(n=8, A=8.0, B=8.0, C=12.0):
+    N = n * n
+    W = np.zeros((N, N))
+
+    for i in range(n):
+        for j in range(n):
+            for k in range(n):
+                for l in range(n):
+                    if i == k and j == l:
+                        continue
+                    if i == k:  # Same row
+                        W[idx(i,j,n), idx(k,l,n)] -= A
+                    if j == l:  # Same column
+                        W[idx(i,j,n), idx(k,l,n)] -= B
+
+    np.fill_diagonal(W, 0.0)
+    theta = -C * np.ones(N)
+    return W, theta
+
+def energy(W, theta, V):
+    return -0.5 * V @ (W @ V) + theta @ V
+
+def hopfield_update_verbose(W, theta, V_init, max_iter=20000, n=8):
+    V = V_init.copy()
+    N = len(V)
+
+    for it in range(1, max_iter + 1):
+        i = np.random.randint(0, N)
+        net_input = np.dot(W[i], V) - theta[i]
+        V[i] = 1 if net_input >= 0 else 0
+
+        if it % 1000 == 0:  # Print progress every 1000 updates
+            board = V.reshape((n, n))
+            E = energy(W, theta, V)
+            print(f"\nIteration: {it}, Energy: {E}")
+            print(board)
+
+    return V
+
+def is_valid_rook(board):
+    n = board.shape[0]
+    rows_ok = all(np.sum(board[i, :]) == 1 for i in range(n))
+    cols_ok = all(np.sum(board[:, j]) == 1 for j in range(n))
+    return rows_ok and cols_ok
+
+def find_valid_solution_verbose(n=8, attempts=10):
+    W, theta = build_eight_rook_network(n)
+    N = n*n
+
+    for attempt in range(1, attempts + 1):
+        print(f"\n========== Attempt {attempt} ==========")
+        V_init = np.random.choice([0, 1], size=N)
+        V_final = hopfield_update_verbose(W, theta, V_init, max_iter=20000, n=n)
+        board = V_final.reshape((n,n))
+        print(f"\nFinal board after Attempt {attempt}:")
+        print(board)
+
+        if is_valid_rook(board):
+            print(f"\nValid solution found on Attempt {attempt}!")
+            return board
+
+    print("\nNo valid solution found after all attempts.")
+    return None
+
+# Run the full process with verbose progress
+find_valid_solution_verbose()

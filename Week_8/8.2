@@ -1,0 +1,167 @@
+import math
+import numpy as np
+from time import time
+
+# SETTINGS
+TEST_MODE = True   # Change to False later for full problem
+
+if TEST_MODE:
+    MAX_BIKES = 10
+    POISSON_UPPER = 8
+    THETA = 1e-2
+else:
+    MAX_BIKES = 20
+    POISSON_UPPER = 15
+    THETA = 1e-3
+
+MAX_MOVE = 5
+GAMMA = 0.9
+
+REQ_LAM = [3, 4]
+RET_LAM = [3, 2]
+RENT_REWARD = 10
+MOVE_COST_PER_BIKE = 2
+PARKING_PENALTY = 4
+
+def poisson_probs(lam, upper):
+    probs = []
+    for n in range(upper):
+        probs.append(math.exp(-lam) * (lam**n) / math.factorial(n))
+    probs[-1] += 1 - sum(probs)
+    return np.array(probs)
+
+req_probs = [poisson_probs(REQ_LAM[i], POISSON_UPPER) for i in range(2)]
+ret_probs = [poisson_probs(RET_LAM[i], POISSON_UPPER) for i in range(2)]
+
+print("Poisson ready.")
+
+
+
+ALL_STATES = [(i, j) for i in range(MAX_BIKES + 1) for j in range(MAX_BIKES + 1)]
+
+def feasible_actions(state):
+    i, j = state
+    actions = []
+    for a in range(-MAX_MOVE, MAX_MOVE + 1):
+        if a > 0:
+            if a <= i and j + a <= MAX_BIKES:
+                actions.append(a)
+        elif a < 0:
+            if -a <= j and i - a <= MAX_BIKES:
+                actions.append(a)
+        else:
+            actions.append(0)
+    return actions
+
+FEASIBLE_ACTIONS = {s: feasible_actions(s) for s in ALL_STATES}
+
+print("Actions ready.")
+
+
+def move_cost(a):
+    if a > 0:  # first bike free from loc1 → loc2
+        return MOVE_COST_PER_BIKE * max(0, a - 1)
+    return MOVE_COST_PER_BIKE * abs(a)
+
+def parking_cost(b1, b2):
+    cost = 0
+    if b1 > 10: cost += PARKING_PENALTY
+    if b2 > 10: cost += PARKING_PENALTY
+    return cost
+
+print("Cost functions ready.")
+
+def expected_return(s, a, V):
+    i, j = s
+    i_after = i - a
+    j_after = j + a
+
+    immediate_cost = -move_cost(a) - parking_cost(i_after, j_after)
+
+    total = 0.0
+
+    for r1 in range(POISSON_UPPER):
+        p_r1 = req_probs[0][r1]
+        real_r1 = r1 if r1 < POISSON_UPPER - 1 else (POISSON_UPPER - 1)
+
+        for r2 in range(POISSON_UPPER):
+            p_r2 = req_probs[1][r2]
+            real_r2 = r2 if r2 < POISSON_UPPER - 1 else (POISSON_UPPER - 1)
+
+            rent1 = min(i_after, real_r1)
+            rent2 = min(j_after, real_r2)
+
+            reward_rent = (rent1 + rent2) * RENT_REWARD
+
+            b1 = i_after - rent1
+            b2 = j_after - rent2
+
+            for ret1 in range(POISSON_UPPER):
+                p_ret1 = ret_probs[0][ret1]
+                real_ret1 = ret1 if ret1 < POISSON_UPPER - 1 else (POISSON_UPPER - 1)
+
+                for ret2 in range(POISSON_UPPER):
+                    p_ret2 = ret_probs[1][ret2]
+                    real_ret2 = ret2 if ret2 < POISSON_UPPER - 1 else (POISSON_UPPER - 1)
+
+                    prob = p_r1 * p_r2 * p_ret1 * p_ret2
+
+                    next_i = min(b1 + real_ret1, MAX_BIKES)
+                    next_j = min(b2 + real_ret2, MAX_BIKES)
+
+                    total += prob * (immediate_cost + reward_rent + GAMMA * V[next_i, next_j])
+
+    return total
+
+print("Expected return ready.")
+
+def policy_iteration(max_iters=30):
+    V = np.zeros((MAX_BIKES + 1, MAX_BIKES + 1))
+    policy = np.zeros((MAX_BIKES + 1, MAX_BIKES + 1), dtype=int)
+
+    for it in range(max_iters):
+        # POLICY EVALUATION
+        while True:
+            delta = 0
+            for i in range(MAX_BIKES + 1):
+                for j in range(MAX_BIKES + 1):
+                    v_old = V[i, j]
+                    V[i, j] = expected_return((i, j), policy[i, j], V)
+                    delta = max(delta, abs(v_old - V[i, j]))
+            if delta < THETA:
+                break
+
+        # POLICY IMPROVEMENT
+        stable = True
+        for i in range(MAX_BIKES + 1):
+            for j in range(MAX_BIKES + 1):
+                s = (i, j)
+                old = policy[i, j]
+
+                best_a = old
+                best_val = -1e9
+
+                for a in FEASIBLE_ACTIONS[s]:
+                    val = expected_return(s, a, V)
+                    if val > best_val:
+                        best_val = val
+                        best_a = a
+
+                policy[i, j] = best_a
+                if best_a != old:
+                    stable = False
+
+        print("Iteration", it+1, "Stable =", stable)
+        if stable:
+            return policy, V
+
+    return policy, V
+
+print("Policy Iteration ready.")
+
+policy_opt, V_opt = policy_iteration()
+
+print("Optimal policy matrix:\n", policy_opt)
+print("\nValue samples:")
+for s in [(0,0), (5,5), (3,7), (10,2)]:
+    print(s, V_opt[s])

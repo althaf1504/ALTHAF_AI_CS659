@@ -1,0 +1,129 @@
+import random
+
+class BinaryBanditEnv:
+    """
+    Simple binary bandit environment with 2 actions.
+    Each action returns 1 (success) or 0 (failure) with some fixed probability.
+    """
+    def __init__(self, p1=0.3, p2=0.7):
+        # True (hidden) success probabilities for actions 1 and 2
+        self.p = {
+            1: p1,
+            2: p2
+        }
+
+    def step(self, action):
+        """
+        Take an action (1 or 2).
+        Returns:
+            reward: 1 (success) with prob p[action], else 0 (failure).
+        """
+        if action not in [1, 2]:
+            raise ValueError("Action must be 1 or 2")
+        prob = self.p[action]
+        return 1 if random.random() < prob else 0
+
+
+class EpsilonGreedyAgent:
+    """
+    Epsilon-greedy agent for 2-armed bandit.
+    """
+    def __init__(self, epsilon=0.1):
+        self.epsilon = epsilon  # exploration probability
+        # Estimated values (Q-values) for actions 1 and 2
+        self.Q = {
+            1: 0.0,
+            2: 0.0
+        }
+        # Number of times each action was taken
+        self.N = {
+            1: 0,
+            2: 0
+        }
+
+    def select_action(self):
+        """
+        Select an action using epsilon-greedy:
+        - with probability epsilon: explore (random action)
+        - with probability 1 - epsilon: exploit (best current estimated action)
+        """
+        r = random.random()
+        if r < self.epsilon:
+            # Explore: pick random action 1 or 2
+            return random.choice([1, 2])
+        else:
+            # Exploit: pick action with higher estimated value
+            if self.Q[1] > self.Q[2]:
+                return 1
+            elif self.Q[2] > self.Q[1]:
+                return 2
+            else:
+                # If equal, break ties randomly
+                return random.choice([1, 2])
+
+    def update(self, action, reward):
+        """
+        Update Q[action] using incremental mean of rewards.
+        Q_new = Q_old + (1/N) * (reward - Q_old)
+        """
+        self.N[action] += 1
+        n = self.N[action]
+        q_old = self.Q[action]
+        self.Q[action] = q_old + (reward - q_old) / n
+
+
+def run_experiment(
+    p1=0.3,
+    p2=0.7,
+    epsilon=0.1,
+    steps=10000,
+    print_every=2000
+):
+    """
+    Run epsilon-greedy on a 2-armed binary bandit.
+
+    Args:
+        p1, p2: true success probabilities for actions 1 and 2
+        epsilon: exploration rate
+        steps: number of action selections
+        print_every: how often to print progress
+    """
+    env = BinaryBanditEnv(p1=p1, p2=p2)
+    agent = EpsilonGreedyAgent(epsilon=epsilon)
+
+    total_reward = 0
+
+    for t in range(1, steps + 1):
+        action = agent.select_action()
+        reward = env.step(action)
+        agent.update(action, reward)
+        total_reward += reward
+
+        if t % print_every == 0:
+            avg_reward = total_reward / t
+            print(f"Step {t}:")
+            print(f"  Chosen counts: N1={agent.N[1]}, N2={agent.N[2]}")
+            print(f"  Estimated values: Q1={agent.Q[1]:.3f}, Q2={agent.Q[2]:.3f}")
+            print(f"  Average reward so far: {avg_reward:.3f}")
+            print("-" * 40)
+
+    # Final result
+    print("\n=== Final Results ===")
+    print(f"True probabilities:  p1={p1}, p2={p2}")
+    print(f"Epsilon: {epsilon}")
+    print(f"Total steps: {steps}")
+    print(f"Total reward: {total_reward}")
+    print(f"Average reward: {total_reward / steps:.3f}")
+    print(f"Times chosen: action 1 -> {agent.N[1]}, action 2 -> {agent.N[2]}")
+    print(f"Final estimates: Q1={agent.Q[1]:.3f}, Q2={agent.Q[2]:.3f}")
+
+
+if __name__ == "__main__":
+    # You can change these values to test different bandits and epsilons
+    run_experiment(
+        p1=0.3,   # true success prob of action 1
+        p2=0.7,   # true success prob of action 2
+        epsilon=0.1,
+        steps=10000,
+        print_every=2000
+    )

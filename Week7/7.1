@@ -1,0 +1,256 @@
+import random
+
+# ==========================
+#  MENACE: Learning Player
+# ==========================
+class Menace:
+    """
+    Digital version of MENACE (Matchbox Educable Noughts and Crosses Engine).
+    MENACE always plays as 'X'.
+    """
+
+    def __init__(self, reward_win=3, reward_draw=1, punish_loss=-1):
+        #  CRUCIAL: This is the "matchboxes" memory
+        # memory: {state_key: {move_index: bead_count}}
+        self.memory = {}
+
+        # Reward / punishment values (how many beads to add or remove)
+        self.reward_win = reward_win
+        self.reward_draw = reward_draw
+        self.punish_loss = punish_loss
+
+        # Stores the sequence of (state, move) used in a game for learning later
+        self.episode = []
+
+    # CRUCIAL: Representation of game state
+    def board_to_key(self, board):
+        """
+        Convert board list ['X',' ','O',...] to a string key.
+        This key is used as the name of the matchbox.
+        """
+        return ''.join(board)
+
+    # CRUCIAL: Creating a matchbox with beads for each legal move
+    def _ensure_box(self, key, board):
+        """
+        If MENACE has never seen this state, create a new matchbox (box):
+        every empty cell (legal move) starts with 1 bead.
+        """
+        if key not in self.memory:
+            legal_moves = [i for i, cell in enumerate(board) if cell == ' ']
+            self.memory[key] = {i: 1 for i in legal_moves}
+        return self.memory[key]
+
+    #  CRUCIAL: Choosing a move based on bead counts (probability)
+    def choose_move(self, board):
+        """
+        Choose a move using weighted random selection based on bead counts.
+        Returns the chosen cell index (0–8).
+        """
+        key = self.board_to_key(board)
+        box = self._ensure_box(key, board)
+
+        # Weighted random choice: probability ∝ bead_count
+        moves = list(box.keys())
+        beads = [box[m] for m in moves]
+        total = sum(beads)
+
+        r = random.randint(1, total)
+        s = 0
+        chosen = None
+        for m, b in zip(moves, beads):
+            s += b
+            if r <= s:
+                chosen = m
+                break
+
+        # Store the decision to update later after game result
+        self.episode.append((key, chosen))
+        return chosen
+
+    #  CRUCIAL: Learning step = update beads after win/draw/loss
+    def update_after_game(self, result):
+        """
+        Update bead counts according to the game result:
+        result ∈ {'win', 'draw', 'loss'}
+        """
+        if result == 'win':
+            delta = self.reward_win
+        elif result == 'draw':
+            delta = self.reward_draw
+        else:
+            delta = self.punish_loss
+
+        for key, move in self.episode:
+            box = self.memory.setdefault(key, {})
+            box.setdefault(move, 1)  # at least 1 bead
+            box[move] = max(1, box[move] + delta)  # don't go below 1
+
+        # Clear episode for next game
+        self.episode = []
+
+
+# ==========================
+#  Tic-Tac-Toe Game Logic
+# ==========================
+def check_winner(board):
+    """
+    Check if someone has won or it's a draw.
+    Returns:
+        'X' if X wins
+        'O' if O wins
+        'draw' if no empty and no winner
+        None if game not finished
+    """
+    lines = [
+        (0, 1, 2), (3, 4, 5), (6, 7, 8),
+        (0, 3, 6), (1, 4, 7), (2, 5, 8),
+        (0, 4, 8), (2, 4, 6)
+    ]
+
+    for a, b, c in lines:
+        if board[a] != ' ' and board[a] == board[b] == board[c]:
+            return board[a]
+
+    if ' ' not in board:
+        return 'draw'
+
+    return None
+
+
+def print_board(board):
+    """
+    Pretty print the board.
+    """
+    def row(i):
+        return f" {board[i]} | {board[i+1]} | {board[i+2]} "
+    sep = "---+---+---"
+    print(row(0))
+    print(sep)
+    print(row(3))
+    print(sep)
+    print(row(6))
+
+
+# ==========================
+#  Random Opponent (for training)
+# ==========================
+def random_move(board):
+    """
+    Very simple opponent: plays a random legal move.
+    """
+    legal = [i for i, c in enumerate(board) if c == ' ']
+    return random.choice(legal)
+
+
+# ==========================
+#  Training MENACE vs Random
+# ==========================
+def train_menace(games=1000):
+    """
+    Let MENACE play against a random opponent for 'games' number of games.
+    This is to simulate the "learning by playing many times" like Michie's matchboxes.
+    """
+    menace = Menace()
+
+    for _ in range(games):
+        board = [' '] * 9
+        menace.episode = []
+        current = 'X'  # MENACE is always X
+
+        while True:
+            if current == 'X':
+                move = menace.choose_move(board)
+                board[move] = 'X'
+            else:
+                move = random_move(board)
+                board[move] = 'O'
+
+            result = check_winner(board)
+            if result is not None:
+                if result == 'X':
+                    menace.update_after_game('win')
+                elif result == 'O':
+                    menace.update_after_game('loss')
+                else:
+                    menace.update_after_game('draw')
+                break
+
+            current = 'O' if current == 'X' else 'X'
+
+    return menace
+
+
+# ==========================
+#  Play vs MENACE (human)
+# ==========================
+def play_vs_menace(menace):
+    """
+    Human (O) vs MENACE (X).
+    """
+    print("MENACE Tic-Tac-Toe")
+    print("MENACE = X, You = O")
+    print("Cells are numbered as:")
+    print(" 1 | 2 | 3 ")
+    print("---+---+---")
+    print(" 4 | 5 | 6 ")
+    print("---+---+---")
+    print(" 7 | 8 | 9 ")
+
+    while True:
+        board = [' '] * 9
+        menace.episode = []
+        current = 'X'  # MENACE starts
+
+        while True:
+            if current == 'X':
+                move = menace.choose_move(board)
+                board[move] = 'X'
+                print(f"\nMENACE plays at {move + 1}:")
+            else:
+                print()
+                print_board(board)
+                while True:
+                    try:
+                        pos = int(input("Your move (1-9): ")) - 1
+                        if pos < 0 or pos > 8 or board[pos] != ' ':
+                            raise ValueError
+                        board[pos] = 'O'
+                        break
+                    except ValueError:
+                        print("Invalid move. Choose an empty empty cell (1-9).")
+
+            result = check_winner(board)
+            if result is not None:
+                print()
+                print_board(board)
+                if result == 'X':
+                    print("MENACE wins!")
+                    menace.update_after_game('win')
+                elif result == 'O':
+                    print("You win!")
+                    menace.update_after_game('loss')
+                else:
+                    print("It's a draw.")
+                    menace.update_after_game('draw')
+                break
+
+            current = 'O' if current == 'X' else 'X'
+
+        again = input("\nPlay again? (y/n): ").strip().lower()
+        if again != 'y':
+            print("Thanks for playing!")
+            break
+
+
+# ==========================
+#  Main
+# ==========================
+if __name__ == "__main__":
+    # Step 1: Train MENACE by letting it play many games vs random
+    print("Training MENACE against random player...")
+    menace_player = train_menace(games=1000)
+    print("Training done!")
+
+    # Step 2: Let you play against trained MENACE
+    play_vs_menace(menace_player)

@@ -1,0 +1,73 @@
+import numpy as np
+
+# -----------------------------
+# Basic Hopfield Network (bipolar: -1 / +1)
+# -----------------------------
+
+def train_hopfield(patterns):
+    """
+    Train a Hopfield network using Hebbian learning.
+    patterns: list of 1D numpy arrays with values in {-1, +1}
+    returns: weight matrix W
+    """
+    n = patterns[0].size
+    W = np.zeros((n, n))
+
+    for p in patterns:
+        W += np.outer(p, p)
+
+    # No self-connections
+    np.fill_diagonal(W, 0.0)
+
+    # Normalize by number of patterns
+    W /= len(patterns)
+    return W
+
+def recall_hopfield(W, init_state, max_iter=100):
+    """
+    Run Hopfield recall from an initial (possibly noisy) state.
+    Returns the final stable state.
+    """
+    x = init_state.copy()
+    n = x.size
+
+    for _ in range(max_iter):
+        # Update one random neuron at a time (asynchronous update)
+        i = np.random.randint(0, n)
+        net_input = np.dot(W[i], x)
+        x[i] = 1 if net_input >= 0 else -1
+
+    return x
+
+def add_noise(pattern, num_flips=3):
+    """
+    Flip 'num_flips' random bits in the pattern to create a noisy version.
+    """
+    noisy = pattern.copy()
+    idxs = np.random.choice(len(pattern), size=num_flips, replace=False)
+    for i in idxs:
+        noisy[i] *= -1  # flip -1 to 1 or 1 to -1
+    return noisy
+
+if __name__ == "__main__":
+    # Example: one simple pattern of length 16
+    original_pattern = np.array([1, -1, 1, -1, 1, -1, 1, -1,
+                                 1, -1, 1, -1, 1, -1, 1, -1])
+
+    # Train network with this single pattern
+    W = train_hopfield([original_pattern])
+
+    # Create a noisy version by flipping a few bits
+    noisy_pattern = add_noise(original_pattern, num_flips=3)
+
+    # Let the network try to correct the noisy pattern
+    recalled_pattern = recall_hopfield(W, noisy_pattern, max_iter=200)
+
+    print("Original pattern: ")
+    print(original_pattern)
+
+    print("\nNoisy input pattern: ")
+    print(noisy_pattern)
+
+    print("\nRecalled (corrected) pattern: ")
+    print(recalled_pattern)

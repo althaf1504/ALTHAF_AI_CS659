@@ -1,0 +1,187 @@
+import math
+import numpy as np
+
+# ==========================================
+#  Gbike Bicycle Rental (Original Version)
+#  Problem 2: Formulated as MDP & solved by
+#  policy iteration (no free bike, no parking
+#  penalty).
+# ==========================================
+
+# ----- Model parameters (you can change) -----
+
+MAX_BIKES = 10          # capacity per location (use 20 for full version)
+MAX_MOVE = 3            # max bikes moved overnight (use 5 for full version)
+
+RENT_REWARD = 10        # Rs 10 per bike rented
+MOVE_COST = 2           # Rs 2 per bike moved (both directions)
+
+# Poisson parameters (same as in assignment / Jack's Car Rental)
+LAMBDA_RENT_1 = 3
+LAMBDA_RENT_2 = 4
+LAMBDA_RET_1  = 3
+LAMBDA_RET_2  = 2
+
+GAMMA = 0.9             # discount factor
+THETA = 1e-3            # policy evaluation convergence threshold
+POISSON_CUTOFF = 7      # truncate Poisson sums for speed
+
+
+# ---------------- Poisson helpers ----------------
+
+def poisson_pmf(n, lam):
+    """Poisson pmf P(N=n) with parameter lam."""
+    return math.exp(-lam) * (lam ** n) / math.factorial(n)
+
+def build_poisson_cache(lam, max_n):
+    """
+    Cache Poisson probabilities for 0..max_n-1 exactly,
+    and lump tail probability P(N >= max_n) into index max_n.
+    """
+    probs = [poisson_pmf(n, lam) for n in range(max_n)]
+    tail = 1.0 - sum(probs)
+    probs.append(max(tail, 0.0))
+    return np.array(probs)
+
+rent1_probs = build_poisson_cache(LAMBDA_RENT_1, POISSON_CUTOFF)
+rent2_probs = build_poisson_cache(LAMBDA_RENT_2, POISSON_CUTOFF)
+ret1_probs  = build_poisson_cache(LAMBDA_RET_1,  POISSON_CUTOFF)
+ret2_probs  = build_poisson_cache(LAMBDA_RET_2,  POISSON_CUTOFF)
+
+
+# --------------- Bellman backup ------------------
+
+def expected_return(state, action, V):
+    """
+    Compute Bellman backup:
+      R(s,a) + gamma * sum_s' P(s' | s,a) V(s')
+    for the original Gbike problem.
+
+    state = (b1, b2)  : bikes at location 1 and 2 in the evening.
+    action            : bikes moved from loc1 -> loc2 (negative is opposite).
+    V                 : value function array of shape (MAX_BIKES+1, MAX_BIKES+1).
+    """
+    b1, b2 = state
+
+    # Clamp action to allowed range
+    move = int(max(-MAX_MOVE, min(MAX_MOVE, action)))
+
+    # Can't move more bikes than available on each side
+    move = max(-b2, min(move, b1))
+
+    # Inventory after movement
+    new_b1 = b1 - move
+    new_b2 = b2 + move
+
+    # Movement cost (no free bike here)
+    move_cost = MOVE_COST * abs(move)
+
+    expected_return_val = -move_cost  # we subtract cost; rentals will add reward
+
+    # Simulate rentals and returns (truncated Poisson sums)
+    for rent1, p_rent1 in enumerate(rent1_probs):
+        if p_rent1 == 0:
+            continue
+        for rent2, p_rent2 in enumerate(rent2_probs):
+            if p_rent2 == 0:
+                continue
+
+            p_rent = p_rent1 * p_rent2
+
+            # Actual rentals limited by available bikes
+            real_rent1 = min(new_b1, rent1)
+            real_rent2 = min(new_b2, rent2)
+            reward_rent = (real_rent1 + real_rent2) * RENT_REWARD
+
+            # Bikes left after rentals
+            b1_after = new_b1 - real_rent1
+            b2_after = new_b2 - real_rent2
+
+            for ret1, p_ret1 in enumerate(ret1_probs):
+                if p_ret1 == 0:
+                    continue
+                for ret2, p_ret2 in enumerate(ret2_probs):
+                    if p_ret2 == 0:
+                        continue
+
+                    p = p_rent * p_ret1 * p_ret2
+                    # Bikes after returns (capped by capacity)
+                    b1_end = min(b1_after + ret1, MAX_BIKES)
+                    b2_end = min(b2_after + ret2, MAX_BIKES)
+
+                    expected_return_val += p * (
+                        reward_rent + GAMMA * V[b1_end, b2_end]
+                    )
+
+    return expected_return_val
+
+
+# --------------- Policy Iteration ----------------
+
+def policy_iteration():
+    """
+    Run policy iteration for the original Gbike problem.
+
+    Returns:
+        V_opt  : optimal value function, shape (MAX_BIKES+1, MAX_BIKES+1)
+        pi_opt : optimal policy, same shape, integer moves.
+    """
+    # V(b1,b2) and policy(b1,b2)
+    V = np.zeros((MAX_BIKES + 1, MAX_BIKES + 1))
+    policy = np.zeros((MAX_BIKES + 1, MAX_BIKES + 1), dtype=int)
+
+    iteration = 0
+    while True:
+        iteration += 1
+        print(f"\n=== Policy Iteration sweep {iteration} ===")
+
+        # ---- Policy Evaluation ----
+        while True:
+            delta = 0.0
+            for b1 in range(MAX_BIKES + 1):
+                for b2 in range(MAX_BIKES + 1):
+                    v_old = V[b1, b2]
+                    a = policy[b1, b2]
+                    V[b1, b2] = expected_return((b1, b2), a, V)
+                    delta = max(delta, abs(v_old - V[b1, b2]))
+            print(f"  Policy evaluation delta = {delta:.4f}")
+            if delta < THETA:
+                break
+
+        # ---- Policy Improvement ----
+        stable = True
+        for b1 in range(MAX_BIKES + 1):
+            for b2 in range(MAX_BIKES + 1):
+                old_a = policy[b1, b2]
+                # Evaluate all possible moves from -MAX_MOVE..MAX_MOVE
+                action_vals = []
+                for a in range(-MAX_MOVE, MAX_MOVE + 1):
+                    action_vals.append(expected_return((b1, b2), a, V))
+                best_idx = int(np.argmax(action_vals))
+                best_a = best_idx - MAX_MOVE  # shift index back to action
+
+                policy[b1, b2] = best_a
+                if best_a != old_a:
+                    stable = False
+
+        print("  Policy stable? ->", stable)
+        if stable:
+            break
+
+    return V, policy
+
+
+# --------------- Main ----------------
+
+if __name__ == "__main__":
+    print("Solving original Gbike bicycle rental problem via policy iteration...")
+    print(f"MAX_BIKES = {MAX_BIKES}, MAX_MOVE = {MAX_MOVE}")
+
+    V_opt, pi_opt = policy_iteration()
+
+    print("\n=== Optimal Policy π*(b1,b2) ===")
+    print("Rows: b1 = 0..MAX_BIKES,  Columns: b2 = 0..MAX_BIKES")
+    print(pi_opt)
+
+    print("\n=== Optimal Value Function V*(b1,b2) ===")
+    print(V_opt)
